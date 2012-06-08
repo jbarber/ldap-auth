@@ -1,0 +1,186 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+use Net::LDAP;
+use Net::LDAP::Util qw(escape_filter_value);
+use Getopt::Long;
+use Pod::Usage;
+
+=head1 NAME
+
+ldap-auth - program to check a users credentials against an LDAP server
+
+=head1 SYNOPSIS
+
+ldap-auth -H I<LDAP URI> -b I<LDAP search base> -u I<username> -p I<password> [ -D I<LDAP bind DN> ] [ -w I<LDAP DN password> ] [ -y I<password file> ] [ --help | -h ] [ --man ]
+
+=head1 DESCRIPTION
+
+Given an LDAP server URI and a username and password, searches for that username in the LDAP directory and after finding the DN of the user attempts to bind as that DN with the password.
+
+It's assumed that the user will match the search filter:
+  (uid=username)
+
+On success (user found in LDAP and password authenticates the user) exit status 0 is returned. If a non-zero exit code is returned some failure occured - including the user not being found or an incorrect password.
+
+The passwords for the user and the DN are visible on UNIX platforms whilst the command runs - if this is a concern then the B<-y> argument should be used to read the passwords from a file.
+
+=head1 EXAMPLES
+
+  ldap-auth -H ldaps://ldap.company.com -b dc=company,dc=com -u jimbob -p foo
+
+Searches for the user 'jimbob' under the DN dc=company,dc=com. If the user is found, bind as that user with the password 'foo'. Return 0 if successfull, otherwise non-zero.
+
+  ldap-auth -H ldaps://ldap.company.com -b dc=company,dc=com -u jimbob -y password_file
+
+Reads the password for the user jimbob from the file F<password_file>.
+
+=head1 OPTIONS
+
+=over
+
+=item -H I<LDAP URI>
+
+The URI of the LDAP server. It's recommended that SSL is used to secure the connection - although no validation of the SSL certificate is currently made.
+
+=item -b I<LDAP search base>
+
+The DN at which to start the search.
+
+=item -u I<username>
+
+The username of the user to search for.
+
+=item -p I<password>
+
+The password of the user.
+
+=item -D I<LDAP bind DN>
+
+A DN to bind to the LDAP server with if anonymous binds are not allowed.
+
+=item -w I<LDAP DN password>
+
+The password for the DN supplied with the -I argument.
+
+=item -y I<password file>
+
+Path to file containing passwords for binding to the server. 
+
+The first line is the user's password. If a second line is present then it's assumed to be the password for the DN supplied with the -I argument.
+
+If the password file name is '-' then the file is read from standard input.
+
+=item --help | -h
+
+Display the command line arguments.
+
+=item --man
+
+Display the man page
+
+=back
+
+=head1 SEE ALSO
+
+L<Net::LDAP>
+
+=head1 BUGS
+
+=over
+
+=item SSL certificates are not validated.
+
+=back
+
+=head1 AUTHOR
+
+Jonathan Barber - <jonathan.barber@gmail.com>
+
+=cut
+
+sub die_on_error {
+	my ($ldap, $message) = @_;
+	$ldap->code && die $message . ": " . $ldap->error . "\n";
+}
+
+sub safe_search {
+	my ($ldap, $base, $user) = @_;
+	my $safe_user = escape_filter_value($user);
+
+	return $ldap->search(
+		base => $base,
+		filter => "(uid=$safe_user)",
+	);
+}
+
+my ($help, $man, $user, $password, $bind_dn, $bind_password, $base, $ldap_uri, $password_file) = @_;
+
+GetOptions(
+'user|u=s' => \$user,
+	'p=s' => \$password,
+	'D=s' => \$bind_dn,
+	'w=s' => \$bind_password,
+	'H=s' => \$ldap_uri,
+	'b=s' => \$base,
+	'y=s' => \$password_file,
+	'help|?' => \$help,
+	'man' => \$man,
+) or pod2usage(2);
+pod2usage(1) if $help;
+pod2usage(-exitstatus => 0, -verbose => 2) if $man;
+
+if ($password_file) {
+	my $fh;
+	if ($password_file eq '-') {
+		$fh = \*STDIN;
+	}
+	else {
+		open $fh, '<', $password_file or die "Can't open '$password_file': $!\n";
+	}
+
+	$password = <$fh>;
+	$bind_password = <$fh>;
+	defined $password && chomp $password;
+	defined $bind_password && chomp $bind_password;
+
+	close $fh;
+}
+
+$ldap_uri || die "Missing ldap URI\n";
+$base     || die "Missing search base\n";
+$user     || die "Missing username\n";
+$password || die "Missing user password\n";
+
+if (($bind_dn || $bind_password) && not ($bind_dn && $bind_password)) {
+	die "Both a LDAP bind DN and password for that DN must be provided\n";
+}
+
+my $ldap = Net::LDAP->new(
+	$ldap_uri,
+	timeout => 2,
+) or die $@;
+my $m = $ldap->bind( $bind_dn ? ($bind_dn, password => $bind_password) : () );
+die_on_error $m, "Initial bind failed";
+
+my $result = safe_search( $ldap, $base, $user );
+die_on_error $result, "Search failed";
+
+# Check that we have only 1 result
+if ($result->count == 0) {
+	die "No user '$user' found\n";
+}
+elsif ($result->count > 1) {
+	die "More than one user with username '$user' found\n";
+}
+elsif ($result->count < 0) {
+	die "Less than zero entries found for username '$user'. This should be impossible\n";
+}
+
+my ($entry) = $result->entries;
+# unbind'ing and bind'ing is not allowed by OpenLDAP, re-bind'ing is
+my $bind = $ldap->bind( $entry->dn(), password => $password );
+die_on_error $bind, "Authentication failed for user '$user'";
+warn "user '$user' found and authenticated\n";
+exit 0;

@@ -3,7 +3,7 @@
 use strict;
 use warnings;
 use Net::LDAP;
-use Net::LDAP::Util qw(escape_filter_value);
+use Net::LDAP::Util;
 use Getopt::Long;
 use Pod::Usage;
 
@@ -107,7 +107,17 @@ sub die_on_error {
 
 sub safe_search {
 	my ($ldap, $base, $user) = @_;
-	my $safe_user = escape_filter_value($user);
+	my $safe_user;
+
+	{
+		no warnings 'once';
+		if (*Net::LDAP::Util::escape_filter_value{CODE}) {
+			$safe_user = escape_filter_value($user);
+		}
+		else {
+			$safe_user = $user;
+		}
+	}
 
 	return $ldap->search(
 		base => $base,

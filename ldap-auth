@@ -112,7 +112,7 @@ sub safe_search {
 	{
 		no warnings 'once';
 		if (*Net::LDAP::Util::escape_filter_value{CODE}) {
-			$safe_user = escape_filter_value($user);
+			$safe_user = Net::LDAP::Util::escape_filter_value($user);
 		}
 		else {
 			$safe_user = $user;

@@ -1,0 +1,91 @@
+=head1 NAME
+
+ldap-auth - program to check a users credentials against an LDAP server
+
+=head1 SYNOPSIS
+
+ldap-auth -H I<LDAP URI> -b I<LDAP search base> -u I<username> -p I<password> [ -D I<LDAP bind DN> ] [ -w I<LDAP DN password> ] [ -y I<password file> ] [ --help | -h ] [ --man ]
+
+=head1 DESCRIPTION
+
+Given an LDAP server URI and a username and password, searches for that username in the LDAP directory and after finding the DN of the user attempts to bind as that DN with the password.
+
+It's assumed that the user will match the search filter:
+  (uid=username)
+
+On success (user found in LDAP and password authenticates the user) exit status 0 is returned. If a non-zero exit code is returned some failure occured - including the user not being found or an incorrect password.
+
+The passwords for the user and the DN are visible on UNIX platforms whilst the command runs - if this is a concern then the B<-y> argument should be used to read the passwords from a file.
+
+=head1 EXAMPLES
+
+  ldap-auth -H ldaps://ldap.company.com -b dc=company,dc=com -u jimbob -p foo
+
+Searches for the user 'jimbob' under the DN dc=company,dc=com. If the user is found, bind as that user with the password 'foo'. Return 0 if successfull, otherwise non-zero.
+
+  ldap-auth -H ldaps://ldap.company.com -b dc=company,dc=com -u jimbob -y password_file
+
+Reads the password for the user jimbob from the file F<password_file>.
+
+=head1 OPTIONS
+
+=over
+
+=item -H I<LDAP URI>
+
+The URI of the LDAP server. It's recommended that SSL is used to secure the connection - although no validation of the SSL certificate is currently made.
+
+=item -b I<LDAP search base>
+
+The DN at which to start the search.
+
+=item -u I<username>
+
+The username of the user to search for.
+
+=item -p I<password>
+
+The password of the user.
+
+=item -D I<LDAP bind DN>
+
+A DN to bind to the LDAP server with if anonymous binds are not allowed.
+
+=item -w I<LDAP DN password>
+
+The password for the DN supplied with the -I argument.
+
+=item -y I<password file>
+
+Path to file containing passwords for binding to the server. 
+
+The first line is the user's password. If a second line is present then it's assumed to be the password for the DN supplied with the -I argument.
+
+If the password file name is '-' then the file is read from standard input.
+
+=item --help | -h
+
+Display the command line arguments.
+
+=item --man
+
+Display the man page
+
+=back
+
+=head1 SEE ALSO
+
+L<Net::LDAP>
+
+=head1 BUGS
+
+=over
+
+=item SSL certificates are not validated.
+
+=back
+
+=head1 AUTHOR
+
+Jonathan Barber - <jonathan.barber@gmail.com>
+
